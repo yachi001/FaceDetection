@@ -6,10 +6,174 @@
  
 #include <iostream>
 #include <stdio.h>
+
+#define PI 3.14159265
  
 using namespace std;
 using namespace cv;
- 
+
+Mat visual_orientation (Mat ori, Size winSize, int cellSize, float scale) {
+
+	//Initialize
+	Mat result(Size(ori.cols, ori.rows),CV_8UC3);
+	result = Scalar(0,0,0);
+
+	int col = winSize.width / cellSize;
+    int row = winSize.height / cellSize;
+
+	float temp[2] = {0};
+
+	float*** ori_vec = new float**[row];
+	for(int i = 0; i < row; i++) {
+		ori_vec[i] = new float*[col];
+		for(int j = 0; j < col; j++) {
+			ori_vec[i][j] = new float[2];
+		}
+	}
+
+	//float rm = 0;
+	//float im = 0;
+
+	//Get average V(x,y) for each cell
+	for(int i = 0; i < row; i++) {
+		for(int j = 0; j < col; j++) {
+			for(int k = 0; k < cellSize; k++) {
+				for(int p = 0; p < cellSize; p++) { 
+					temp[0] += ori.at<Vec2f>(i * cellSize + k, j * cellSize + p)[0];
+					temp[1] += ori.at<Vec2f>(i * cellSize + k, j * cellSize + p)[1];
+				}
+			}
+			ori_vec[i][j][0] = temp[0] / (float)(cellSize * cellSize);
+			ori_vec[i][j][1] = temp[1] / (float)(cellSize * cellSize);
+			temp[0] = 0;
+			temp[1] = 0;
+			//rm = rm > ori_vec[i][j][0]? rm : ori_vec[i][j][0];
+			//im = im > ori_vec[i][j][1]? im : ori_vec[i][j][1];
+		}
+	}
+		  //cout << rm << " and " << im << "\n";
+
+	//Draw
+	for(int y = 0; y < row; y++)
+		for(int x = 0; x < col; x++) {
+
+			if (ori_vec[y][x][0] == 0 && ori_vec[y][x][1] == 0)
+                    continue;
+
+			int draw_x = x * cellSize;
+			int draw_y = y * cellSize;
+			int m_x = draw_x + cellSize/2;
+            int m_y = draw_y + cellSize/2;
+
+			float x1 = m_x - ori_vec[y][x][0] * scale;
+            float y1 = m_y - ori_vec[y][x][1] * scale;
+            float x2 = m_x + ori_vec[y][x][0] * scale;
+            float y2 = m_y + ori_vec[y][x][1] * scale;
+
+			line(result, Point(x1, y1), Point(x2, y2), CV_RGB(255,255,255));
+		}
+
+	return result;
+}
+
+int main() 
+{
+	//image();
+
+	///Input control 
+	const double thresh_strength = 10;
+
+	///Image
+	  Mat src, src_gray;
+	  Mat temp;
+	  char* window_name = "Sobel Demo - Simple Edge Detector";
+	  int scale = 1;
+	  int delta = 0;
+	  int ddepth = CV_16S;
+
+	  /// Load an image
+	  src = imread( "test1.jpg" );
+
+	  if( !src.data )
+	  { return -1; }
+
+	  GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
+
+	  /// Convert it to gray
+	  cvtColor( src, src_gray, CV_RGB2GRAY );
+
+	  /// Generate grad_x and grad_y
+	  Mat grad_x, grad_y;
+	  Mat strength, direction;
+	  Mat display;
+	  Mat orientation(src.rows, src.cols, CV_32FC2, Scalar(0, 0));
+
+	  double minVal; 
+	  double maxVal; 
+	  Point minLoc; 
+	  Point maxLoc;
+
+	  /// Gradient X
+	  Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
+	  convertScaleAbs( grad_x, display );
+	  imshow( "x", display );
+	 
+	  /// Gradient Y
+	  Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
+	  convertScaleAbs( grad_y, display );
+	  imshow( "y", display );
+
+	  /// Edge Strength
+	  grad_x.convertTo(grad_x, CV_32F);
+	  grad_y.convertTo(grad_y, CV_32F);
+	  magnitude(grad_x, grad_y, strength);
+	  threshold(strength, strength, thresh_strength, 0, THRESH_TOZERO);
+	  convertScaleAbs(strength, display);
+	  imshow( "magnitude", display);
+
+	  /// Edge direction
+	  divide(grad_y, grad_x, direction);
+	  Mat dir_mod;
+	  direction.copyTo(dir_mod);
+
+	  for( int i=0; i<direction.rows; i++ ) {
+		  for( int j=0; j<direction.cols; j++ ){
+			   direction.at<float>(i, j) = atan(direction.at<float>(i, j)) + PI / 2;
+			   if (direction.at<float>(i, j) >= PI 
+				   && direction.at<float>(i, j) < (PI * 2)) {
+				   direction.at<float>(i, j) = direction.at<float>(i, j) - PI; 
+			   } else if (direction.at<float>(i, j) >= 0 
+				   && direction.at<float>(i, j) < PI){ 
+			   } else 
+				   cout << "direction value out of range\n";
+			   dir_mod.at<float>(i, j) = fmod(direction.at<float>(i, j), (float)PI);
+		  }
+	  }
+	  //minMaxLoc( direction, &minVal, &maxVal, &minLoc, &maxLoc );
+	  convertScaleAbs(direction, display, (255.0 / PI));
+	  imshow( "direction", display);
+
+	  ///Oritentation
+	  for(int i = 0; i < src.rows; i++)
+		  for(int j = 0; j < src.cols; j++) {
+			  orientation.at<Vec2f>(i, j)[0] = strength.at<float>(i,j) * cos(direction.at<float>(i, j));
+			  orientation.at<Vec2f>(i, j)[1] = strength.at<float>(i,j) * sin(direction.at<float>(i, j));
+		  }
+	  convertScaleAbs(visual_orientation(orientation, src.size(), 4, 0.0135), display);
+	  imshow("Orientation", display);
+	  
+	  ///Distance
+	  //Mat distance;
+
+	  //detection();
+	  ////cvThreshold( s, s, 100, 100, CV_THRESH_TRUNC );
+
+
+	  waitKey(0);
+	  return 0;
+}
+
+/*
 int image() 
 {
 	CascadeClassifier faceCascade;
@@ -38,8 +202,6 @@ int image()
 	waitKey(0);
 	return 0;
 }
-
-
 
 int video()
 {
@@ -159,80 +321,6 @@ int detection()
 
 	  return 0;
  }
-
-
-
-int main() 
-{
-	//image();
-
-	  Mat src, src_gray;
-	  Mat grad;
-	  char* window_name = "Sobel Demo - Simple Edge Detector";
-	  int scale = 1;
-	  int delta = 0;
-	  int ddepth = CV_16S;
-
-	  int c;
-
-	  /// Load an image
-	  src = imread( "test1.jpg" );
-
-	  if( !src.data )
-	  { return -1; }
-
-	  GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
-
-	  /// Convert it to gray
-	  cvtColor( src, src_gray, CV_RGB2GRAY );
-
-
-	  /// Generate grad_x and grad_y
-	  Mat grad_x, grad_y;
-	  Mat abs_grad_x, abs_grad_y;
-	  Mat strength, direction;
-
-	  /// Gradient X
-	  Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
-	  convertScaleAbs( grad_x, abs_grad_x );
-	  imshow( "x", abs_grad_x );
-
-	  /// Gradient Y
-	  Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
-	  convertScaleAbs( grad_y, abs_grad_y );
-	  imshow( "y", abs_grad_y );
-
-	  // Edge Strength
-	  abs_grad_x.convertTo(abs_grad_x, CV_32F);
-	  abs_grad_y.convertTo(abs_grad_y, CV_32F);
-	  magnitude(abs_grad_x, abs_grad_y, strength);
-	  convertScaleAbs(strength, strength);
-	  imshow( "magnitude", strength );
-
-	  //const double PI  = 3.14159265358979;
-
-	  //// Edge direction
-	  divide(abs_grad_y, abs_grad_x, direction);
-	  imshow( "divide-directions", direction );
-
-	  for( int i=0; i<src.rows; i++ ) {
-		  for( int j=0; j<src.cols; j++ ){
-			   direction.at<float>(i, j) = atan( abs_grad_y.at<float>(i, j) / abs_grad_x.at<float>(i, j)) ;
-			   //cout << direction.at<float>(i, j) << "\t";
-		  }
-		  cout << endl;
-	  }
-	  convertScaleAbs( direction, direction );
-	  imshow( "loop-directions", direction );
-
-
-	  //detection();
-	  ////cvThreshold( s, s, 100, 100, CV_THRESH_TRUNC );
-
-
-	  waitKey(0);
-	  return 0;
-}
-
+ */
 
 
