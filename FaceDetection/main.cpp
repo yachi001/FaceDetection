@@ -76,60 +76,35 @@ Mat visual_orientation (Mat ori, Size winSize, int cellSize, float scale) {
 	return result;
 }
 
-int main() 
-{
-	//image();
-
-	///Input control 
-	const double thresh_strength = 10;
-
-	///Image
-	  Mat src, src_gray;
-	  Mat temp;
-	  char* window_name = "Sobel Demo - Simple Edge Detector";
-	  int scale = 1;
-	  int delta = 0;
-	  int ddepth = CV_16S;
-
-	  /// Load an image
-	  src = imread( "test1.jpg" );
-
-	  if( !src.data )
-	  { return -1; }
-
-	  GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
-
-	  /// Convert it to gray
-	  cvtColor( src, src_gray, CV_RGB2GRAY );
-
-	  /// Generate grad_x and grad_y
+Mat orientationVector (Mat src, int ddepth, int scale, int delta, float thresh_strength) {
+	 /// Generate grad_x and grad_y
 	  Mat grad_x, grad_y;
 	  Mat strength, direction;
 	  Mat display;
 	  Mat orientation(src.rows, src.cols, CV_32FC2, Scalar(0, 0));
 
-	  double minVal; 
-	  double maxVal; 
-	  Point minLoc; 
-	  Point maxLoc;
+	  //double minVal; 
+	  //double maxVal; 
+	  //Point minLoc; 
+	  //Point maxLoc;
 
 	  /// Gradient X
-	  Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
-	  convertScaleAbs( grad_x, display );
-	  imshow( "x", display );
+	  Sobel( src, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
+	  //convertScaleAbs( grad_x, display );
+	  //imshow( "x", display );
 	 
 	  /// Gradient Y
-	  Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
-	  convertScaleAbs( grad_y, display );
-	  imshow( "y", display );
+	  Sobel( src, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
+	  //convertScaleAbs( grad_y, display );
+	  //imshow( "y", display );
 
 	  /// Edge Strength
 	  grad_x.convertTo(grad_x, CV_32F);
 	  grad_y.convertTo(grad_y, CV_32F);
 	  magnitude(grad_x, grad_y, strength);
 	  threshold(strength, strength, thresh_strength, 0, THRESH_TOZERO);
-	  convertScaleAbs(strength, display);
-	  imshow( "magnitude", display);
+	  //convertScaleAbs(strength, display);
+	  //imshow( "magnitude", display);
 
 	  /// Edge direction
 	  divide(grad_y, grad_x, direction);
@@ -150,8 +125,8 @@ int main()
 		  }
 	  }
 	  //minMaxLoc( direction, &minVal, &maxVal, &minLoc, &maxLoc );
-	  convertScaleAbs(direction, display, (255.0 / PI));
-	  imshow( "direction", display);
+	  //convertScaleAbs(direction, display, (255.0 / PI));
+	  //imshow( "direction", display);
 
 	  ///Oritentation
 	  for(int i = 0; i < src.rows; i++)
@@ -159,11 +134,190 @@ int main()
 			  orientation.at<Vec2f>(i, j)[0] = strength.at<float>(i,j) * cos(direction.at<float>(i, j));
 			  orientation.at<Vec2f>(i, j)[1] = strength.at<float>(i,j) * sin(direction.at<float>(i, j));
 		  }
-	  convertScaleAbs(visual_orientation(orientation, src.size(), 4, 0.0135), display);
-	  imshow("Orientation", display);
+	  //convertScaleAbs(visual_orientation(orientation, src.size(), 4, 0.0135), display);
+	  //imshow("Orientation", display);
+
+	  return orientation;
+}
+
+double dist (Vec2f vi, Vec2f vm){
+	double dist;
+	if(norm(vi) > 0 && norm(vm) > 0) {
+		dist = norm(vi, vm);
+	} else {
+		dist = 255;
+	}
+	return dist;
+}
+
+//Backup
+float dist (float vi1, float vi2, float vm1, float vm2){
+	float dist, vi, vm;
+	vi = sqrt(vi1 * vi1 + vi2 * vi2);
+	vm = sqrt(vm1 * vm1 + vm2 * vm2);
+	if(vi > 0 && vm > 0) {
+		dist = sqrt(pow((vi1 - vm1), 2) + pow((vi2 - vm2), 2));
+	} else {
+		dist = 255;
+	}
+	return dist;
+}
+
+Mat getDistance (Mat vi, Mat vm) {
+	int sz[] = {vi.rows, vi.cols, vm.rows, vm.cols};
+	int p[4];
+	Mat distance(4, sz, CV_32F, Scalar::all(255));
+
+	for(int x = 0; x < vi.rows - vm.rows + 1; x++) {
+		for(int y = 0; y < vi.cols - vm.cols + 1; y++) {
+			for(int m = 0; m < vm.rows; m++) {
+				for(int n = 0; n < vm.cols; n++) {
+					p[0] = x;
+					p[1] = y;
+					p[2] = m;
+					p[3] = n;
+					distance.at<float>(p) = dist(vm.at<Vec2f>(m, n), vi.at<Vec2f>(x + m, y + n));
+					//distance.at<float>(p) = dist(vm.at<Vec2f>(m, n)[0], vm.at<Vec2f>(m, n)[1],
+						//vi.at<Vec2f>(x + m, y + n)[0], vi.at<Vec2f>(x + m, y + n)[1]);
+					//cout << distance.at<float>(p) << "\n";
+				}
+			}
+		}
+	}
+
+	return distance;
+}
+
+Mat elasticDist (Mat vi, Mat vm, float w[]){
+	Mat cost(vi.rows, vi.cols, CV_32F);
+	double min, distTotal;
+	float distNeighbor[9] = {65025};
+	int sz[] = {vi.rows, vi.cols, vm.rows, vm.cols};
+	int p[4];
+	Mat distance(4, sz, CV_32F, Scalar::all(0));
+
+	distance = getDistance(vi, vm);
+	
+	for(int x = 0; x < vi.rows; x++) {
+		for(int y = 0; y < vi.cols; y++) {
+			distTotal = 0;
+			p[0] = x;
+			p[1] = y;
+			for(int m = 0; m < vm.rows; m++) {
+				for(int n = 0; n < vm.cols; n++) {
+					min = -255;
+					/// +w(k,l)
+					p[2] = m; p[3] = n;
+					distNeighbor[4] = w[4] + pow(distance.at<float>(p), (float)2);
+					if( m > 0 && n > 0) {
+						p[2] = m - 1; p[3] = n - 1;
+						distNeighbor[0] = w[0] + pow(distance.at<float>(p), (float)2);
+					} 
+					if (n > 0) {
+						p[2] = m; p[3] = n - 1;
+						distNeighbor[1] = w[1] + pow(distance.at<float>(p), (float)2);
+						if (m < vm.rows - 1) {
+							p[2] = m + 1; p[3] = n - 1;
+							distNeighbor[2] = w[2] + pow(distance.at<float>(p), (float)2);
+						}
+					}
+					
+					if (m > 0) {
+						p[2] = m - 1; p[3] = n;
+						distNeighbor[3] = w[3] + pow(distance.at<float>(p), (float)2);
+						if (n < vm.cols - 1) {
+							p[2] = m - 1; p[3] = n + 1;
+							distNeighbor[6] = w[6] + pow(distance.at<float>(p), (float)2);
+						}
+					}
+					if (m < vm.rows - 1) {
+						p[2] = m + 1; p[3] = n;
+						distNeighbor[5] = w[5] + pow(distance.at<float>(p), (float)2);
+					}
+					if (n < vm.cols - 1) {
+						p[2] = m; p[3] = n + 1;
+						distNeighbor[7] = w[7] + pow(distance.at<float>(p), (float)2);
+						if (m < vm.rows - 1) {
+							p[2] = m + 1; p[3] = n + 1;
+							distNeighbor[8] = w[8] + pow(distance.at<float>(p), (float)2);
+						}
+					}
+					///Find min
+					for(int i = 0; i < 9; i++) {
+						if(min == -255) {
+							min = distNeighbor[i];
+						} else {
+							min = min < distNeighbor[i]? min : distNeighbor[i];
+						}
+					}//end-i(min)
+					distTotal += sqrt(min);
+					//cout << sqrt(min) << "\t";
+				}//end-n
+			}//end-m
+			//cout << distTotal << "\t";
+		}//end-y
+	}//end-xs
+	
+
+	return cost;
+}
+
+int main() 
+{
+	//image();
+
+	///Image
+	  Mat src, src_gray;
+	  Mat avg, avg_gray;
+	  Mat ori_src(src.rows, src.cols, CV_32FC2, Scalar(0, 0));
+	  Mat ori_avg(avg.rows, avg.cols, CV_32FC2, Scalar(0, 0));
+	  char* window_name = "Sobel Demo - Simple Edge Detector";
+	  int scale = 1;
+	  int delta = 0;
+	  int ddepth = CV_16S;
+	  double resize_factor;
+	  float w[9] = {96, 64, 96, 64, 0, 64, 96, 64, 96};
+
+	  /// Load an image
+	  src = imread( "test1.jpg" );
+	  avg = imread("m(01-32).jpg");
+
+	  if( !src.data || !avg.data)
+	  { return -1; }
+
+	  GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
+
+	  /// Scale the average face to fit
+	  if(avg.rows > src.rows) {
+		  resize_factor = (double)src.rows / (double)avg.rows;
+		  resize(avg, avg, Size(), resize_factor, resize_factor);
+	  }
+	  if(avg.cols > src.cols) {
+		  resize_factor = (double)src.cols / (double)avg.cols;
+		  resize(avg, avg, Size(), resize_factor, resize_factor);
+	  }
+
+	  /// Scale all
+	  resize(avg, avg, Size(), 0.4, 0.4);
+	  //resize(src, src, Size(), 0.2, 0.2);
+
+	  /// Convert it to gray
+	  cvtColor( src, src_gray, CV_RGB2GRAY );
+	  cvtColor( avg, avg_gray, CV_RGB2GRAY );
+
+	  /// Get orientations
+	  Mat display;
+	  ori_src = orientationVector(src_gray, ddepth, scale, delta, 10);
+	  convertScaleAbs(visual_orientation(ori_src, ori_src.size(), 4, 0.0135), display);
+	  imshow("Orientation - Image", display);
+
+	  ori_avg = orientationVector(avg_gray, ddepth, scale, delta, 10);
+	  convertScaleAbs(visual_orientation(ori_avg, ori_avg.size(), 4, 0.0135), display);
+	  imshow("Orientation - Model", display);
 	  
-	  ///Distance
-	  //Mat distance;
+	  /// Distance
+	  Mat distance;
+	  distance = elasticDist(ori_src, ori_avg, w);
 
 	  //detection();
 	  ////cvThreshold( s, s, 100, 100, CV_THRESH_TRUNC );
