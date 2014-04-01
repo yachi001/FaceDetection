@@ -255,10 +255,11 @@ Mat elasticDist (Mat vi, Mat vm, float w[]){
 				}//end-n
 			}//end-m
 			//cout << distTotal << "\t";
+			cost.at<float>(x, y) = distTotal;
 		}//end-y
+		cout << "Done row" << x << "\n";
 	}//end-xs
 	
-
 	return cost;
 }
 
@@ -299,7 +300,6 @@ int main()
 
 	  /// Scale all
 	  resize(avg, avg, Size(), 0.4, 0.4);
-	  //resize(src, src, Size(), 0.2, 0.2);
 
 	  /// Convert it to gray
 	  cvtColor( src, src_gray, CV_RGB2GRAY );
@@ -315,13 +315,15 @@ int main()
 	  convertScaleAbs(visual_orientation(ori_avg, ori_avg.size(), 4, 0.0135), display);
 	  imshow("Orientation - Model", display);
 	  
+	  cout << "Done orientation\n";
+
 	  /// Distance
 	  Mat distance;
 	  distance = elasticDist(ori_src, ori_avg, w);
 
 	  //detection();
 	  ////cvThreshold( s, s, 100, 100, CV_THRESH_TRUNC );
-
+	  cout << "Done all\n";
 
 	  waitKey(0);
 	  return 0;
