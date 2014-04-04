@@ -31,6 +31,9 @@ Mat visual_orientation(Mat ori, Size winSize, int cellSize, float scale) {
         }
     }
 
+    //float rm = 0;
+    //float im = 0;
+
     //Get average V(x,y) for each cell
     for (int i = 0; i < row; i++) {
         for (int j = 0; j < col; j++) {
@@ -48,6 +51,7 @@ Mat visual_orientation(Mat ori, Size winSize, int cellSize, float scale) {
             //im = im > ori_vec[i][j][1]? im : ori_vec[i][j][1];
         }
     }
+    //cout << rm << " and " << im << "\n";
 
     //Draw
     for (int y = 0; y < row; y++)
@@ -72,31 +76,33 @@ Mat visual_orientation(Mat ori, Size winSize, int cellSize, float scale) {
     return result;
 }
 
-Mat orientationVector(Mat src, float thresh_strength) {
+void showImage(string windowName, Mat image)
+{
+	Mat display;
+	image.copyTo(display);
+	convertScaleAbs( display, display);
+	imshow( windowName, display );
+}
+
+
+Mat orientationVector(Mat src, int ddepth, int scale, int delta, float thresh_strength) {
     Mat display;
 
-    /// Gradient X
 	Mat grad_x;
-    Sobel(src, grad_x, CV_16S, 1, 0, 3, 1, 0, BORDER_DEFAULT);
-    //convertScaleAbs( grad_x, display );
-    //imshow( "x", display );
+    Sobel(src, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT);
+	//showImage("Sobel X", grad_x);
 
-    /// Gradient Y
 	Mat grad_y;
-    Sobel(src, grad_y, CV_16S, 0, 1, 3, 1, 0, BORDER_DEFAULT);
-    //convertScaleAbs( grad_y, display );
-    //imshow( "y", display );
+    Sobel(src, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT);
+    //showImage("Sobel Y", grad_x);
 
-    /// Edge Strength
 	Mat strength;
     grad_x.convertTo(grad_x, CV_32F);
     grad_y.convertTo(grad_y, CV_32F);
     magnitude(grad_x, grad_y, strength);
     threshold(strength, strength, thresh_strength, 0, THRESH_TOZERO);
-    //convertScaleAbs(strength, display);
-    //imshow( "magnitude", display);
+    //showImage("magnitude", grad_x);
 
-    /// Edge direction
 	Mat direction;
     divide(grad_y, grad_x, direction);
     Mat dir_mod;
@@ -117,8 +123,9 @@ Mat orientationVector(Mat src, float thresh_strength) {
             dir_mod.at<float>(i, j) = fmod(direction.at<float>(i, j), (float)PI);
         }
     }
-    //convertScaleAbs(direction, display, (255.0 / PI));
-    //imshow( "direction", display);
+    //minMaxLoc( direction, &minVal, &maxVal, &minLoc, &maxLoc );
+    convertScaleAbs(direction, display, (255.0 / PI));
+    imshow( "direction", display);
 
     ///Oritentation
 	Mat orientation(src.rows, src.cols, CV_32FC2, Scalar(0, 0));
@@ -127,8 +134,8 @@ Mat orientationVector(Mat src, float thresh_strength) {
         orientation.at<Vec2f>(i, j)[0] = strength.at<float>(i, j) * cos(direction.at<float>(i, j));
         orientation.at<Vec2f>(i, j)[1] = strength.at<float>(i, j) * sin(direction.at<float>(i, j));
     }
-    //convertScaleAbs(visual_orientation(orientation, src.size(), 4, 0.0135), display);
-    //imshow("Orientation", display);
+    convertScaleAbs(visual_orientation(orientation, src.size(), 4, 0.0135), display);
+    imshow("Orientation", display);
 
     return orientation;
 }
@@ -159,22 +166,30 @@ float dist(float vi1, float vi2, float vm1, float vm2){
 }
 
 Mat getDistance(Mat vi, Mat vm) {
-    int sz[] = { vi.rows, vi.cols, vm.rows, vm.cols };
+	int sz[] = { vi.rows + vm.rows, vi.cols + vm.cols, vm.rows, vm.cols };
     int p[4];
     Mat distance2(4, sz, CV_32F, Scalar::all(255));
 
-    for (int x = 0; x < vi.rows - vm.rows + 1; x++) {
-        for (int y = 0; y < vi.cols - vm.cols + 1; y++) {
+    for (int x = 0; x < vi.rows; x++) {
+        for (int y = 0; y < vi.cols; y++) {
             for (int m = 0; m < vm.rows; m++) {
                 for (int n = 0; n < vm.cols; n++) {
-                    p[0] = x;
-                    p[1] = y;
-                    p[2] = m;
-                    p[3] = n;
-                    distance2.at<float>(p) = dist(vm.at<Vec2f>(m, n), vi.at<Vec2f>(x + m, y + n));
+					if( x + m > vi.rows - 1 ||  y + n > vi.cols - 1)
+						continue;
+					p[0] = x;
+					p[1] = y;
+					p[2] = m;
+					p[3] = n;
+					if( x < vi.rows && y < vi.cols) {
+						distance2.at<float>(p) = dist(vm.at<Vec2f>(m, n), vi.at<Vec2f>(x + m, y + n));
+						//distance.at<float>(p) = dist(vm.at<Vec2f>(m, n)[0], vm.at<Vec2f>(m, n)[1],
+						//vi.at<Vec2f>(x + m, y + n)[0], vi.at<Vec2f>(x + m, y + n)[1]);
+						
+					}
                 }
             }
-        }
+        } 
+		//cout << "line" << x << "\n";
     }
 
     return distance2;
@@ -185,9 +200,10 @@ Mat elasticDist(Mat vi, Mat vm, float w[]){
     double min, distTotal;
     float distNeighbor[9] = { 65025 };
 
-    int sz[] = { vi.rows, vi.cols, vm.rows, vm.cols };
+    int sz[] = { vi.rows + vm.rows, vi.cols + vm.cols, vm.rows, vm.cols };
     int p[4];
     Mat distance(4, sz, CV_32F, Scalar::all(0));
+    //Mat distance2(4, sz, CV_32F, Scalar::all(0));
 
     distance = getDistance(vi, vm);
 
@@ -210,8 +226,8 @@ Mat elasticDist(Mat vi, Mat vm, float w[]){
                         p[2] = m; p[3] = n - 1;
                         distNeighbor[1] = w[1] + pow(distance.at<float>(p), (float)2);
                         if (m < vm.rows - 1) {
-                            p[2] = m + 1; p[3] = n - 1;
-                            distNeighbor[2] = w[2] + pow(distance.at<float>(p), (float)2);
+                        p[2] = m + 1; p[3] = n - 1;
+                        distNeighbor[2] = w[2] + pow(distance.at<float>(p), (float)2);
                         }
                     }
 
@@ -219,8 +235,8 @@ Mat elasticDist(Mat vi, Mat vm, float w[]){
                         p[2] = m - 1; p[3] = n;
                         distNeighbor[3] = w[3] + pow(distance.at<float>(p), (float)2);
                         if (n < vm.cols - 1) {
-                            p[2] = m - 1; p[3] = n + 1;
-                            distNeighbor[6] = w[6] + pow(distance.at<float>(p), (float)2);
+                        p[2] = m - 1; p[3] = n + 1;
+                        distNeighbor[6] = w[6] + pow(distance.at<float>(p), (float)2);
                         }
                     }
                     if (m < vm.rows - 1) {
@@ -231,8 +247,8 @@ Mat elasticDist(Mat vi, Mat vm, float w[]){
                         p[2] = m; p[3] = n + 1;
                         distNeighbor[7] = w[7] + pow(distance.at<float>(p), (float)2);
                         if (m < vm.rows - 1) {
-                            p[2] = m + 1; p[3] = n + 1;
-                            distNeighbor[8] = w[8] + pow(distance.at<float>(p), (float)2);
+                        p[2] = m + 1; p[3] = n + 1;
+                        distNeighbor[8] = w[8] + pow(distance.at<float>(p), (float)2);
                         }
                     }
                     ///Find min
@@ -304,83 +320,211 @@ float getMax(Mat mat)
 }
 
 
+
+Mat hierarchicalSearch(Mat src, Mat match, float w[], int disparity, int coarserDisparity) {
+	// Building a correlation map?
+	
+	const int tgs = 20;
+	int rows = src.rows/disparity;
+	int cols = src.cols/disparity;
+	int width = 10;//match.rows;
+	int height = 10;//match.cols;
+
+	Mat copy;
+	src.copyTo(copy);
+
+
+	
+	Mat cropped;
+	for( int i=1; i<rows; i+=disparity ) {	 
+		for( int j=1; j<cols; j+=disparity ) {	//loop through every sixth val
+			// If the correlaiton map is less than the threshold, then look around its neighbour
+
+			cropped = src(Rect(i, j, width, height));
+			elasticDist(cropped, match, w);
+
+
+			//if( copy.at<float>(i, j) < tgs ) {
+			//	copy.at<float>(i-1, j-1);
+			//	copy.at<float>(i-1, j);
+			//	copy.at<float>(i-1, j+1);
+			//	
+			//	copy.at<float>(i, j-1);
+			//	copy.at<float>(i, j);
+			//	copy.at<float>(i, j+1);
+
+			//	copy.at<float>(i+1, j-1);
+			//	copy.at<float>(i+1, j);
+			//	copy.at<float>(i+1, j+1);
+			//}
+		}
+	}
+	
+
+	/*
+
+	// Getting only the point of interest
+	Mat result = Mat::zeros(rows, cols, CV_32F);
+	for( int i=0; i<rows; i++ ) {
+		for( int j=0; j<cols; j++ ) { 
+			result.at<float>(i, j) = src.at<float>(i+disparity, j+disparity);
+			if( result.at<float>(i, j) < tgs ) {
+
+			}
+		}
+	}
+
+	// Elastic matching to find the min cost?
+	result = elasticDist(result, match, w);
+	printMinMax("distance",result);
+	//printMatrix(result);
+
+	// Threshold the point with the highest match: Zoom in points below Tgs
+	Mat coaser;
+	for( int i=0; i<rows; i++ ) {
+		for( int j=0; j<cols; j++ ) { 
+			//zoom in to the area
+			if( result.at<float>(i, j) < tgs ) {
+				for( int k=0; k>2; k++ ) {
+					for( int l=0; l>2; l++ ) {
+						coaser.at<float>(k, l) = src.at<float>(k+coarserDisparity, l+coarserDisparity);
+					}
+				}
+				
+			}
+		}
+	}
+
+	*/
+
+	return cropped;
+}
+
+
 int main()
 {
     cout << "Debugging" << endl;
 
     ///Image
-    Mat src, src_gray;
+    Mat src, src_copy, src_gray;
     Mat avg, avg_gray;
     Mat ori_src(src.rows, src.cols, CV_32FC2, Scalar(0, 0));
     Mat ori_avg(avg.rows, avg.cols, CV_32FC2, Scalar(0, 0));
 
+    int scale = 1;
+    int delta = 0;
+    int ddepth = CV_16S;
     double resize_factor;
     float w[9] = { 96, 64, 96, 64, 0, 64, 96, 64, 96 };
 
     /// Load an image
     src = imread("test1.jpg");
     avg = imread("m(01-32).jpg");
+	//avg = imread("face.png");
 
     if (!src.data || !avg.data) {
         return -1;
     }
 
-	Mat src_blur;
-    GaussianBlur(src, src_blur, Size(3, 3), 0, 0, BORDER_DEFAULT);
+	src.copyTo(src_copy);
+    GaussianBlur(src_copy, src_copy, Size(3, 3), 0, 0);
 
     /// Scale the average face to fit
-    if (avg.rows > src.rows) {
-        resize_factor = (double)src.rows / (double)avg.rows;
+    if (avg.rows > src_copy.rows) {
+        resize_factor = (double)src_copy.rows / (double)avg.rows;
         resize(avg, avg, Size(), resize_factor, resize_factor);
     }
-    if (avg.cols > src.cols) {
-        resize_factor = (double)src.cols / (double)avg.cols;
+    if (avg.cols > src_copy.cols) {
+        resize_factor = (double)src_copy.cols / (double)avg.cols;
         resize(avg, avg, Size(), resize_factor, resize_factor);
     }
 
     /// Scale all
     resize(avg, avg, Size(), 0.4, 0.4);
-    //resize(src, src, Size(), 0.2, 0.2);
+    //resize(src_copy, src_copy, Size(), 0.2, 0.2);
 
     /// Convert it to gray
-    cvtColor(src_blur, src_gray, CV_RGB2GRAY);
+    cvtColor(src_copy, src_gray, CV_RGB2GRAY);
     cvtColor(avg, avg_gray, CV_RGB2GRAY);
 
     /// Get orientations
     Mat display;
-    ori_src = orientationVector(src_gray, 10);
+    ori_src = orientationVector(src_gray, ddepth, scale, delta, 10);
     convertScaleAbs(visual_orientation(ori_src, ori_src.size(), 4, 0.0135), display);
     imshow("Orientation - Image", display);
 
-    ori_avg = orientationVector(avg_gray, 10);
+    ori_avg = orientationVector(avg_gray, ddepth, scale, delta, 10);
     convertScaleAbs(visual_orientation(ori_avg, ori_avg.size(), 4, 0.0135), display);
     imshow("Orientation - Model", display);
     cout << "Done orientation\n";
 
-    /// Distance
-    Mat distance;
-    distance = elasticDist(ori_src, ori_avg, w);
+	Mat temp;
+	//src.convertTo(temp, CV_32F);
+	//temp = hierarchicalSearch(ori_src, ori_avg, w, 6, 3);
+	//imshow("Temp", temp);
+	//printMatrix(temp);
 
-	const float threshold = 0;
+
+	
+    /// Distance
+    Mat distance = elasticDist(ori_src, ori_avg, w);    
 	const float min = getMin(distance);
 	const float max = getMax(distance);
-	
-	for( int i=0; i<distance.rows; i++ ) {
-		for( int j=0; j<distance.cols; j++ ) {
-			distance.at<float>(i, j) = (distance.at<float>(i, j) - min) / (max-min) ; //normalize
-			if( distance.at<int>(i, j) > threshold ) {
-				rectangle(src, Point(i, j), Point(i-avg.rows, j-avg.cols), Scalar(0, 0, 255));
 
+	Mat zero = Mat::zeros(distance.rows, distance.cols, CV_8U);
+	bool isFace = false;
+	int repeatFactor = 4;
+	Size distSz = distance.size();
+	for( int i=0; i<distSz.height; i++ ) {
+		for( int j=0; j<distSz.width; j++ ) {
+			isFace = false;
+			distance.at<float>(i, j) = (distance.at<float>(i, j) - min) / (max-min) ;
+			//if( i<distSz.height - ori_avg.rows && j>distSz.width - ori_avg.cols) {
+			if( i<ori_avg.rows && j<ori_avg.cols ) {
+				//if( i >= repeatFactor && j >= repeatFactor) {
+					
+					//for( int m = 0; m < repeatFactor; m++) 
+					//	for(int n = 0; n < repeatFactor; n++) {
+					//		if( zero.at<int>(i - m, j - n) == true) {
+					//			isFace = true;
+					//			break;
+					//		}
+					//	}
+					if( distance.at<float>(i, j) < 0.05 ){ //&& !isFace) {
+						//zero.at<int>(i, j) = true;
+						rectangle(src, Point(i, j), Point(i+ori_avg.cols, j+ori_avg.rows), Scalar(0, 0, 255));
+					}
+				//}
+				
 			}
 		}
 	}
+	printMatrix(distance);
 
+	printMinMax("distance result", distance);
 	imshow("elastic distance", distance);
+
+	/*for( int i=0; i<distance.rows; i++ ) {
+		for( int j=0; j<distance.cols; j++ ) {
+
+			if( zero.at<int>(i, j) == 1 ) {
+				rectangle(src, Point(i, j), Point(i+ori_avg.cols, j+ori_avg.rows), Scalar(0, 0, 255));
+
+			}
+		}
+	}*/
+
+	/*
+	int w2, h;
+	Size s = distance.size();
+	h = s.height;
+	w2 = s.width;
+	cout << "distance width:" << w2 << endl << h << endl;
+	*/
+
 	imshow("rect", src);
-    
+
     cout << "Done all\n";
     waitKey(0);
     return 0;
 }
-
-
